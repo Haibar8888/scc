@@ -1,7 +1,6 @@
 package controllers
 
 import (
-	"fmt"
 	"smart-command-center-backend/services"
 	"smart-command-center-backend/utils"
 
@@ -33,9 +32,6 @@ func CreateUser(c *gin.Context) {
 		utils.BadRequestResponse(c, "Invalid input", err.Error())
 		return
 	}
-
-	// log the request
-	fmt.Printf("CreateUser request: %+v\n", input)
 
 	user, err := services.CreateUser(input)
 	if err != nil {

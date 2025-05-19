@@ -1,17 +1,16 @@
 package controllers
 
 import (
-	"smart-command-center-backend/config"
-	"smart-command-center-backend/models"
+	"fmt"
+	"smart-command-center-backend/services"
 	"smart-command-center-backend/utils"
 
 	"github.com/gin-gonic/gin"
-	"golang.org/x/crypto/bcrypt"
 )
 
 func GetUsers(c *gin.Context) {
-	var users []models.User
-	if err := config.DB.Preload("Role").Find(&users).Error; err != nil {
+	users, err := services.GetUsers()
+	if err != nil {
 		utils.InternalServerErrorResponse(c, "Failed to get users", err.Error())
 		return
 	}
@@ -20,8 +19,8 @@ func GetUsers(c *gin.Context) {
 
 func GetUser(c *gin.Context) {
 	id := c.Param("id")
-	var user models.User
-	if err := config.DB.Preload("Role").First(&user, id).Error; err != nil {
+	user, err := services.GetUserByID(id)
+	if err != nil {
 		utils.NotFoundResponse(c, "User not found")
 		return
 	}
@@ -29,53 +28,22 @@ func GetUser(c *gin.Context) {
 }
 
 func CreateUser(c *gin.Context) {
-	type CreateUserInput struct {
-		Name     string `json:"name" binding:"required"`
-		Email    string `json:"email" binding:"required,email"`
-		Password string `json:"password" binding:"required,min=6"`
-		RoleID   uint   `json:"role_id" binding:"required"`
-	}
-
-	var input CreateUserInput
+	var input services.CreateUserInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		utils.BadRequestResponse(c, "Invalid input", err.Error())
 		return
 	}
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
+	// log the request
+	fmt.Printf("CreateUser request: %+v\n", input)
+
+	user, err := services.CreateUser(input)
 	if err != nil {
-		utils.InternalServerErrorResponse(c, "Failed to hash password", err.Error())
-		return
-	}
-
-	var exists bool
-	err = config.DB.Model(&models.Role{}).
-		Select("count(*) > 0").
-		Where("id = ?", input.RoleID).
-		Find(&exists).Error
-	if err != nil {
-		utils.InternalServerErrorResponse(c, "Failed to verify role", err.Error())
-		return
-	}
-	if !exists {
-		utils.NotFoundResponse(c, "Role not found")
-		return
-	}
-
-	user := models.User{
-		Name:     input.Name,
-		Email:    input.Email,
-		Password: string(hashedPassword),
-		RoleID:   input.RoleID,
-	}
-
-	if err := config.DB.Create(&user).Error; err != nil {
-		utils.InternalServerErrorResponse(c, "Failed to create user", err.Error())
-		return
-	}
-
-	if err := config.DB.Preload("Role").First(&user, user.ID).Error; err != nil {
-		utils.InternalServerErrorResponse(c, "Failed to load user role", err.Error())
+		if err.Error() == "role not found" {
+			utils.NotFoundResponse(c, "Role not found")
+		} else {
+			utils.InternalServerErrorResponse(c, "Failed to create user", err.Error())
+		}
 		return
 	}
 
@@ -84,49 +52,15 @@ func CreateUser(c *gin.Context) {
 
 func UpdateUser(c *gin.Context) {
 	id := c.Param("id")
-	var user models.User
-	if err := config.DB.First(&user, id).Error; err != nil {
-		utils.NotFoundResponse(c, "User not found")
-		return
-	}
-
-	var input struct {
-		Name     string `json:"name"`
-		Email    string `json:"email" binding:"omitempty,email"`
-		Password string `json:"password"`
-		RoleID   uint   `json:"role_id"`
-	}
-
+	var input services.UpdateUserInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		utils.BadRequestResponse(c, "Invalid input", err.Error())
 		return
 	}
 
-	if input.Name != "" {
-		user.Name = input.Name
-	}
-	if input.Email != "" {
-		user.Email = input.Email
-	}
-	if input.RoleID != 0 {
-		user.RoleID = input.RoleID
-	}
-	if input.Password != "" {
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
-		if err != nil {
-			utils.InternalServerErrorResponse(c, "Failed to hash password", err.Error())
-			return
-		}
-		user.Password = string(hashedPassword)
-	}
-
-	if err := config.DB.Save(&user).Error; err != nil {
+	user, err := services.UpdateUser(id, input)
+	if err != nil {
 		utils.InternalServerErrorResponse(c, "Failed to update user", err.Error())
-		return
-	}
-
-	if err := config.DB.Preload("Role").First(&user, user.ID).Error; err != nil {
-		utils.InternalServerErrorResponse(c, "Failed to load user role", err.Error())
 		return
 	}
 
@@ -135,7 +69,7 @@ func UpdateUser(c *gin.Context) {
 
 func DeleteUser(c *gin.Context) {
 	id := c.Param("id")
-	if err := config.DB.Delete(&models.User{}, id).Error; err != nil {
+	if err := services.DeleteUser(id); err != nil {
 		utils.InternalServerErrorResponse(c, "Failed to delete user", err.Error())
 		return
 	}
